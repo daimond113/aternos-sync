@@ -10,22 +10,14 @@ import userAgents from 'puppeteer-extra-plugin-anonymize-ua'
 import stealth from 'puppeteer-extra-plugin-stealth'
 import humanize from '@extra/humanize'
 import { setTimeout } from 'timers/promises'
-<<<<<<< HEAD
 import chromium from 'chromium'
-=======
->>>>>>> 9dc1521 (initial commit)
 
 puppeteer
     .use(stealth())
     .use(userAgents())
     .use(humanize())
 
-<<<<<<< HEAD
 const searchURL = new URL('https://api.curseforge.com/v1/mods/search')
-=======
-const baseURL = 'https://api.curseforge.com'
-const searchURL = new URL(`${baseURL}/v1/mods/search`)
->>>>>>> 9dc1521 (initial commit)
 searchURL.searchParams.set('gameId', '432')
 
 async function search(key: string, mod: string, isRetyped: boolean) {
@@ -98,16 +90,10 @@ async function sync(args: yargs.Argv) {
     }
     const slugs = _slugs.filter((slug) => slug !== undefined)
     const browser = await puppeteer.launch({
-<<<<<<< HEAD
         headless: false,
         executablePath: chromium.path,
     })
     const page = (await browser.pages())[0]
-=======
-        headless: false
-    })
-    const page = await browser.newPage()
->>>>>>> 9dc1521 (initial commit)
     page.setCookie({
         name: 'ATERNOS_SESSION',
         httpOnly: true,
@@ -125,11 +111,8 @@ async function sync(args: yargs.Argv) {
         // it didnt prompt for cookies
     }
     await page.waitForSelector('div.server-body').then(() => page.click('div.server-body'))
-<<<<<<< HEAD
     await page.waitForNavigation()
     let installedSlugs = [...slugs]
-=======
->>>>>>> 9dc1521 (initial commit)
     for (const slug of slugs) {
         const dest = new URL(url)
         dest.pathname += `a/curseforge/${slug}`
@@ -141,18 +124,12 @@ async function sync(args: yargs.Argv) {
             await setTimeout(10_000)
         } catch {
             console.log(`${slug} cannot be installed, is it on Aternos?`)
-<<<<<<< HEAD
             installedSlugs = installedSlugs.filter((installedSlug) => installedSlug !== slug)
-=======
->>>>>>> 9dc1521 (initial commit)
             continue
         }
     }
     await browser.close()
-<<<<<<< HEAD
     console.log(`Done, installed: ${installedSlugs.join(', ')}`)
-=======
->>>>>>> 9dc1521 (initial commit)
 }
 
 function getProcessArgvBinIndex() {
