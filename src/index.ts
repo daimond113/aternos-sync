@@ -1,94 +1,50 @@
 #!/usr/bin/env node
 
 import yargs from 'yargs'
-import axios from 'axios'
 import puppeteer from 'puppeteer-extra'
-import { readdir } from 'fs/promises'
-import prompts from 'prompts'
-import { distance } from 'fastest-levenshtein'
+import { cp, readdir, readFile, rm } from 'fs/promises'
 import userAgents from 'puppeteer-extra-plugin-anonymize-ua'
 import stealth from 'puppeteer-extra-plugin-stealth'
 import humanize from '@extra/humanize'
 import { setTimeout } from 'timers/promises'
 import chromium from 'chromium'
+import { join } from 'path'
+import { zip } from 'compressing'
+import toml from '@sgarciac/bombadil'
 
 puppeteer
     .use(stealth())
     .use(userAgents())
     .use(humanize())
 
-const searchURL = new URL('https://api.curseforge.com/v1/mods/search')
-searchURL.searchParams.set('gameId', '432')
-
-async function search(key: string, mod: string, isRetyped: boolean) {
-    if (mod === "SYNC_SKIP") return undefined
-    const clone = new URL(searchURL)
-    clone.searchParams.set('searchFilter', mod)
-    const results = axios.get(clone.toString(), {
-        headers: {
-            'x-api-key': key
-        }
-    })
-    const { data: { data } } = await results
-    if (data.length === 0) {
-        if (!isRetyped) {
-            const result = await prompts({
-                type: 'text',
-                name: 'value',
-                message: `No results found for ${mod}. Try to retype the mod name.`,
-            })
-            if (result.value) {
-                return search(key, result.value, true)
-            }
-        }
-        else {
-            console.log(`No results found for ${mod}`)
-            return
-        }
-    }
-    if (data.length > 1) {
-        const choices = data.map((mod) => ({
-            title: `${mod.name} (${mod.slug})`,
-            realName: mod.name,
-            value: mod.slug
-        })).sort((a, b) => distance(a.realName, mod) - distance(b.realName, mod))
-        let { value } = await prompts({
-            type: 'autocomplete',
-            name: 'value',
-            message: `${mod} is ambiguous, which one do you want?`,
-            choices,
-            initial: choices[0].value,
-            onState: function () {
-                this.fallback = { title: this.input, description: `Selects ${this.input}`, value: this.input };
-
-                // Check to make sure there are no suggestions so we do not override a suggestion
-                if (this.suggestions.length === 0) {
-                    this.value = this.input;
-                }
-            },
-        })
-        if (!choices.find((choice) => choice.value === value)) {
-            // it is a custom choice, we need to research
-            value = await search(key, value.trim(), false)
-        }
-        return value
-    }
-    return data[0].slug
-}
-
 async function sync(args: yargs.Argv) {
     const argv = await args.argv
-    const key = argv.k as string
     const url = new URL(argv.u as string)
     url.pathname.endsWith('/') || (url.pathname += '/')
     const dir = argv.m as string
     const cookie = argv.c as string
-    const mods = (await readdir(dir)).map((name) => name.replace('.jar', '').match(/([a-zA-Z]+'?[a-zA-Z]+)/g).join(' ').trim())
-    let _slugs = [] as string[]
-    for (const mod of mods) {
-        _slugs.push(await search(key, mod, false))
+    const modsPath = join(process.cwd(), 'mods')
+    await cp(dir, modsPath, {
+        recursive: true
+    })
+    const slugs = [] as string[]
+    const realModsPath = join(process.cwd(), 'tmp')
+    for await (const mod of (await readdir(modsPath)).filter((file) => file.endsWith('.jar'))) {
+        const modPath = join(modsPath, mod)
+        const realModPath = join(realModsPath, mod.replace('.jar', ''))
+        await zip.uncompress(modPath, realModPath)
+        const tomlLocation = join(realModPath, 'META-INF', 'mods.toml')
+        const plainToml = await readFile(tomlLocation, 'utf8')
+        const parser = new toml.TomlReader()
+        parser.readToml(plainToml)
+        slugs.push(parser.result.mods[0].modId)
     }
-    const slugs = _slugs.filter((slug) => slug !== undefined)
+    await rm(modsPath, {
+        recursive: true
+    })
+    await rm(realModsPath, {
+        recursive: true
+    })
     const browser = await puppeteer.launch({
         headless: false,
         executablePath: chromium.path,
@@ -121,7 +77,7 @@ async function sync(args: yargs.Argv) {
             await page.waitForSelector('div.btn-success', {
                 timeout: 15_000
             }).then(() => page.click('div.btn-success'))
-            await setTimeout(10_000)
+            await setTimeout(6_000)
         } catch {
             console.log(`${slug} cannot be installed, is it on Aternos?`)
             installedSlugs = installedSlugs.filter((installedSlug) => installedSlug !== slug)
@@ -155,29 +111,27 @@ args.scriptName('aternos-sync')
 
 args
     .command(
-        'sync [k] [u] [m]',
+        'sync [u] [m] [c]',
         'Syncs your mods with Aternos',
         sync
     )
-    .option('k', {
-        alias: "api-key",
-        type: 'string',
-        demandOption: true
-    })
     .option('u', {
         alias: "base-url",
         default: "https://aternos.org/addons/",
-        type: "string"
+        type: "string",
+        description: "The base url of the Aternos mods url"
     })
     .option('m', {
         alias: "mod-dir",
         demandOption: true,
-        type: 'string'
+        type: 'string',
+        description: 'The directory containing the mods to install, usually .minecraft/mods'
     })
     .option('c', {
         alias: 'cookie',
         demandOption: true,
-        type: 'string'
+        type: 'string',
+        description: 'The Aternos session cookie, it\'s in a cookie called ATERNOS_SESSION'
     })
     .help()
     .parse()
